@@ -6,15 +6,15 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy.interpolate import griddata
 import json
-import pydeck as pdk
 import io
-from PIL import Image
-from google import genai
-import io
-from PIL import Image
 import base64
 import requests
+from pathlib import Path
 
+# =====================================================================
+# RUTAS ABSOLUTAS DINÁMICAS (Evita KeyErrors y FileNotFoundError en Cloud)
+# =====================================================================
+BASE_DIR = Path(__file__).resolve().parent
 
 # =====================================================================
 # CONFIGURACIÓN DE LA PÁGINA
@@ -27,15 +27,22 @@ st.markdown("Plataforma de inferencia multivariada y análisis geoespacial.")
 st.markdown("---")
 
 # =====================================================================
-# CARGA DE MODELOS (CACHÉ)
+# CARGA DE MODELOS (CACHÉ OPTIMIZADA)
 # =====================================================================
 @st.cache_resource
 def cargar_modelos():
-    scaler = joblib.load('scaler_geoquimico.pkl')
-    modelo = joblib.load('modelo_fertilidad_rf.pkl')
+    ruta_scaler = BASE_DIR / 'scaler_geoquimico.pkl'
+    ruta_modelo = BASE_DIR / 'modelo_fertilidad_rf.pkl'
+    
+    scaler = joblib.load(ruta_scaler)
+    modelo = joblib.load(ruta_modelo)
     return scaler, modelo
 
-scaler, modelo_rf = cargar_modelos()
+try:
+    scaler, modelo_rf = cargar_modelos()
+except Exception as e:
+    st.error(f"❌ Error al cargar los modelos (.pkl): {e}")
+    st.stop()
 
 elementos_requeridos = ['AU', 'AG', 'CU', 'PB', 'ZN', 'MO', 'NI', 'CO', 'CD', 'BI',
                         'FE', 'MN', 'TE', 'BA', 'CR', 'V', 'SN', 'W', 'LA', 'AL',
@@ -51,11 +58,8 @@ archivo_subido = st.sidebar.file_uploader("Formato CSV o Excel", type=['csv', 'x
 
 st.sidebar.markdown("---")
 st.sidebar.header("🎛️ Parámetros del Modelo")
-# UMBRAL DINÁMICO
 umbral_corte = st.sidebar.slider("Umbral de Probabilidad (Corte Fértil)", 0.0, 1.0, 0.5, 0.05)
 st.sidebar.markdown("---")
-st.sidebar.header("🤖 Integración con IA")
-api_key_gemini = st.sidebar.text_input("🔑 API Key de Google Gemini", type="password", help="Obtén tu clave gratuita en Google AI Studio")
 
 # =====================================================================
 # ÁREA PRINCIPAL
@@ -78,8 +82,6 @@ if archivo_subido is not None:
                 probabilidades = modelo_rf.predict_proba(datos_escalados)[:, 1]
                 
                 df_input['Prob_Fertilidad'] = probabilidades
-                
-                # APLICANDO EL UMBRAL DINÁMICO
                 df_input['Clasificacion_IA'] = np.where(df_input['Prob_Fertilidad'] >= umbral_corte, 'Fértil', 'Estéril/Artefacto')
                 
                 if 'SR' in df_input.columns and 'Y' in df_input.columns:
@@ -180,14 +182,11 @@ if archivo_subido is not None:
                     plt.tight_layout()
                     st.pyplot(fig)
                 
-               # ----- PESTAÑA 3: MAPA ESPACIAL (ORIGINAL) -----
+                # ----- PESTAÑA 3: MAPA ESPACIAL -----
                 with tab3:
                     st.subheader("Modelamiento Espacial de Prospectividad")
                     if 'LONGITUD' in df_input.columns and 'LATITUD' in df_input.columns:
-                        
-                        # Limpieza de nulos por seguridad antes de interpolar
                         df_mapa = df_input.dropna(subset=['LATITUD', 'LONGITUD'])
-                        
                         if len(df_mapa) > 0:
                             X_coord = df_mapa['LONGITUD'].values
                             Y_coord = df_mapa['LATITUD'].values
@@ -198,7 +197,7 @@ if archivo_subido is not None:
                             
                             fig_map = plt.figure(figsize=(10, 8))
                             mapa_calor = plt.imshow(grid_z.T, extent=(X_coord.min(), X_coord.max(), Y_coord.min(), Y_coord.max()),
-                                                    origin='lower', cmap='coolwarm', alpha=0.85)
+                                                     origin='lower', cmap='coolwarm', alpha=0.85)
                             
                             contornos = plt.contour(grid_x, grid_y, grid_z, levels=[0.5, 0.7, 0.9], colors=['yellow', 'orange', 'darkred'], linewidths=1.5, linestyles='--')
                             plt.clabel(contornos, inline=True, fontsize=10, fmt='Prob: %.1f')
@@ -212,46 +211,34 @@ if archivo_subido is not None:
                         else:
                             st.error("⚠️ No hay coordenadas válidas para generar el mapa.")
                     else:
-                        st.warning("⚠️ El archivo subido no contiene columnas de 'LATITUD' y 'LONGITUD'. No se puede generar el mapa espacial.")
+                        st.warning("⚠️ El archivo subido no contiene columnas de 'LATITUD' y 'LONGITUD'.")
 
-             
-                # ----- PESTAÑA 4: ASISTENTE MULTIMODAL GRATUITO (HUGGING FACE) -----
+                # ----- PESTAÑA 4: ASISTENTE MULTIMODAL (HUGGING FACE) -----
                 with tab4:
-                    st.subheader("Interpretación Geológica Asistida por IA (Visión Gratuita)")
-                    st.write("Análisis automatizado de las tendencias geoquímicas mediante modelos Open-Source.")
-                    
-                    # El usuario introduce su Token Gratuito de Hugging Face
-                    hf_token = st.text_input("Ingresa tu Hugging Face Access Token (Gratuito):", type="password")
+                    st.subheader("Interpretación Geológica Asistida por IA")
+                    hf_token = st.text_input("Ingresa tu Hugging Face Access Token:", type="password")
                     
                     if not hf_token:
-                        st.warning("⚠️ Ingresa tu Token de Hugging Face para activar el análisis automático.")
+                        st.warning("⚠️ Ingresa tu Token de Hugging Face para activar el análisis.")
                     else:
                         try:
-                            with st.spinner("Procesando gráficos con el modelo multimodal de código abierto..."):
-                                # 1. Convertir la figura a Bytes en formato PNG y codificar en Base64
+                            with st.spinner("Procesando gráficos..."):
                                 buf = io.BytesIO()
                                 fig.savefig(buf, format='png', bbox_inches='tight')
                                 buf.seek(0)
                                 base64_image = base64.b64encode(buf.read()).decode('utf-8')
                                 
-                                porcentaje_fert = (muestras_fertiles / total_muestras) * 100
-                                
-                                # 2. Definir el prompt geológico
                                 prompt_texto = f"""
-                                Actúa como un geoquímico experto. Acabo de procesar {total_muestras} muestras de roca y mi modelo predictivo determinó que el {porcentaje_fert:.1f}% tienen firmas de fertilidad magmática.
-                                
-                                En la imagen adjunta se observan diagramas geoquímicos con puntos rojos (fértiles) y azules (estériles).
-                                Analiza los gráficos y redacta un informe técnico interpretando:
+                                Actúa como un geoquímico experto. Acabo de procesar {total_muestras} muestras y el {porcentaje_anomalias:.1f}% tienen firmas de fertilidad.
+                                Analiza los gráficos e interpreta:
                                 1. Firma adakítica en Sr/Y vs Y.
-                                2. Patrones de enriquecimiento y anomalías en el diagrama Spider.
-                                3. Tendencia calcoalcalina en el diagrama AFM.
+                                2. Patrones en el diagrama Spider.
+                                3. Tendencia calcoalcalina en AFM.
                                 4. Estado de oxidación e implicaciones petrogenéticas.
                                 """
                                 
-                                # 3. Llamada vía API HTTP directamente a Hugging Face (sin errores de librerías locales)
                                 API_URL = "https://api-inference.huggingface.co/models/Qwen/Qwen2-VL-7B-Instruct"
                                 headers = {"Authorization": f"Bearer {hf_token}"}
-                                
                                 payload = {
                                     "inputs": {
                                         "image": f"data:image/png;base64,{base64_image}",
@@ -264,23 +251,19 @@ if archivo_subido is not None:
                                 
                                 if response.status_code == 200:
                                     st.success("✅ Análisis completado con éxito.")
-                                    # Mostrar la respuesta generada
                                     st.markdown(resultado[0]['generated_text'] if isinstance(resultado, list) else resultado)
                                 else:
                                     st.error(f"Error en la API de Hugging Face: {resultado}")
-                                    
                         except Exception as e:
                             st.error(f"⚠️ Error al procesar la solicitud: {e}")
+
                 # =====================================================================
-                # PREPARACIÓN DE DESCARGAS (CSV Y GEOJSON)
+                # DESCARGAS
                 # =====================================================================
                 st.sidebar.markdown("---")
-                
-                # 1. Descarga CSV
                 csv_buffer = df_input.drop(columns=['Color_Punto'], errors='ignore').to_csv(index=False).encode('utf-8')
                 st.sidebar.download_button("📥 Descargar Tabla CSV", data=csv_buffer, file_name="Resultados_Predictivos.csv", mime="text/csv")
                 
-                # 2. Descarga GeoJSON para SIG
                 if 'LONGITUD' in df_input.columns and 'LATITUD' in df_input.columns:
                     features = []
                     for _, row in df_input.iterrows():
@@ -294,16 +277,10 @@ if archivo_subido is not None:
                         })
                     geojson_data = {"type": "FeatureCollection", "features": features}
                     geojson_buffer = json.dumps(geojson_data).encode('utf-8')
-                    
-                    st.sidebar.download_button(
-                        "🗺️ Descargar Capa GeoJSON (Para SIG)", 
-                        data=geojson_buffer, 
-                        file_name="Anomalias_Espaciales.geojson", 
-                        mime="application/geo+json"
-                    )
-                
+                    st.sidebar.download_button("🗺️ Descargar Capa GeoJSON", data=geojson_buffer, file_name="Anomalias_Espaciales.geojson", mime="application/geo+json")
+
             except KeyError as e:
-                st.error(f"⚠️ Error: Falta la columna {e} en el archivo. Se requieren 38 elementos químicos.")
+                st.error(f"⚠️ Error: Falta la columna {e} en el archivo. Se requieren los 38 elementos especificados.")
             except Exception as e:
                 st.error(f"⚠️ Error al procesar: {e}")
 else:
