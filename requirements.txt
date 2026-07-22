@@ -11,5 +11,4 @@ Pillow
 google-genai
 requests
 openpyxl
-openai
-anthropic
+groq
