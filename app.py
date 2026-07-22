@@ -70,6 +70,9 @@ st.sidebar.markdown("---")
 # =====================================================================
 # ÁREA PRINCIPAL
 # =====================================================================
+if 'modelo_ejecutado' not in st.session_state:
+    st.session_state.modelo_ejecutado = False
+
 if archivo_subido is not None:
     if archivo_subido.name.endswith('.csv'):
         df_input = pd.read_csv(archivo_subido)
@@ -78,13 +81,16 @@ if archivo_subido is not None:
         
     st.sidebar.success(f"Archivo cargado: {len(df_input)} muestras.")
     
+    # Al presionar el botón lateral, activamos el estado
     if st.sidebar.button("🚀 Ejecutar Modelo Predictivo"):
+        st.session_state.modelo_ejecutado = True
+        
+    if st.session_state.modelo_ejecutado:
         with st.spinner('Procesando datos y renderizando gráficos espaciales...'):
             try:
                 # 1. Inferencia Predictiva y Manejo de NaNs
                 datos_modelo = df_input[elementos_requeridos].copy()
                 
-                # VERIFICACIÓN E IMPUTACIÓN DE VALORES FALTANTES (NaN)
                 nans_detectados = datos_modelo.isna().sum().sum()
                 if nans_detectados > 0:
                     st.warning(
@@ -93,7 +99,7 @@ if archivo_subido is not None:
                     )
                     imputer = SimpleImputer(strategy='median')
                     datos_modelo[elementos_requeridos] = imputer.fit_transform(datos_modelo)
-                    datos_modelo = datos_modelo.fillna(0) # Respaldo si alguna columna entera era NaN
+                    datos_modelo = datos_modelo.fillna(0)
                     df_input[elementos_requeridos] = datos_modelo[elementos_requeridos]
 
                 # Transformación Log + Escalamiento
@@ -250,8 +256,8 @@ if archivo_subido is not None:
                         st.warning("⚠️ Ingresa tu API Key de Gemini para activar la generación del análisis y reporte.")
                     else:
                         if st.button("📄 Generar Interpretación e Informe NI 43-101"):
-                            try:
-                                with st.spinner("Enviando gráficos y matriz analítica a Gemini..."):
+                            with st.spinner("Enviando gráficos y matriz analítica a Gemini..."):
+                                try:
                                     buf = io.BytesIO()
                                     fig.savefig(buf, format='png', bbox_inches='tight', dpi=200)
                                     buf.seek(0)
@@ -284,11 +290,16 @@ if archivo_subido is not None:
                                         )
                                     )
                                     
-                                    st.success("✅ Análisis geológico e informe técnico generado exitosamente.")
-                                    st.markdown(response.text)
+                                    # Guardamos la respuesta en session_state para persistencia
+                                    st.session_state.reporte_gemini = response.text
                                     
-                            except Exception as e:
-                                st.error(f"⚠️ Error al comunicar con la API de Gemini: {e}")
+                                except Exception as e:
+                                    st.error(f"⚠️ Error al comunicar con la API de Gemini: {e}")
+
+                        # Si ya existe un reporte generado previamente en la sesión, lo mostramos
+                        if 'reporte_gemini' in st.session_state:
+                            st.success("✅ Análisis geológico e informe técnico generado exitosamente.")
+                            st.markdown(st.session_state.reporte_gemini)
 
                 # =====================================================================
                 # DESCARGAS
