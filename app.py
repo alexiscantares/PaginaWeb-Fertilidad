@@ -76,7 +76,7 @@ def fig_a_bytes(fig):
     return buf
 
 # =====================================================================
-# DIÁLOGO MODAL (POP-UP) PARA DESCARGAR WORD CON GRÁFICAS INTERCALADAS
+# DIÁLOGO MODAL PARA DESCARGAR WORD CON GRÁFICAS ÚNICAS INTERCALADAS
 # =====================================================================
 @st.dialog("📄 Descargar Informe NI 43-101 en Word")
 def popup_descargar_word(texto_reporte, figuras_dict):
@@ -89,7 +89,6 @@ def popup_descargar_word(texto_reporte, figuras_dict):
     p_sub = doc.add_paragraph()
     p_sub.add_run("Evaluación de Fertilidad Magmática e Inferencia Multivariada por IA\n").bold = True
 
-    # Función auxiliar para agregar imagen con título y descripción
     def insertar_grafico(key_fig, titulo_fig, desc_fig):
         if key_fig in figuras_dict and figuras_dict[key_fig] is not None:
             p_img = doc.add_paragraph()
@@ -103,7 +102,16 @@ def popup_descargar_word(texto_reporte, figuras_dict):
             run_lbl.font.size = Pt(9.5)
             p_label.paragraph_format.space_after = Pt(14)
 
-    # Procesar líneas del reporte generado
+    # Control de inserción única de imágenes
+    insertadas = {
+        "mapa": False,
+        "sry": False,
+        "spider": False,
+        "afm": False,
+        "cuk": False,
+        "vti": False
+    }
+
     lineas = texto_reporte.split('\n')
     
     for linea in lineas:
@@ -111,28 +119,40 @@ def popup_descargar_word(texto_reporte, figuras_dict):
         if not linea_clean:
             continue
 
-        # Si detecta un título de sección (robusto a negritas ** de Markdown)
-        if any(sec in linea_clean.upper() for sec in ["1.", "2.", "3.", "4.", "5.", "RESUMEN EJECUTIVO", "FIRMA ADAKÍTICA", "EVALUACIÓN DE ELEMENTOS", "ALTERACIÓN GEOQUÍMICA", "CONCLUSIONES"]):
-            doc.add_heading(linea_clean.replace("**", ""), level=2)
-        else:
-            doc.add_paragraph(linea_clean)
+        es_titulo = any(sec in linea_clean.upper() for sec in [
+            "1.", "2.", "3.", "4.", "5.", 
+            "RESUMEN EJECUTIVO", "FIRMA ADAKÍTICA", 
+            "EVALUACIÓN DE ELEMENTOS", "ALTERACIÓN GEOQUÍMICA", "CONCLUSIONES"
+        ])
 
-        # Inserción de gráficos intercalados según el tema redactado
-        if "RESUMEN EJECUTIVO" in linea_clean.upper() or "ÍTEM 9" in linea_clean.upper():
+        if es_titulo and linea_clean.startswith("#"):
+            doc.add_heading(linea_clean.replace("#", "").replace("**", "").strip(), level=2)
+        elif es_titulo and not linea_clean.startswith("#") and len(linea_clean) < 80:
+            doc.add_heading(linea_clean.replace("**", "").strip(), level=2)
+        else:
+            doc.add_paragraph(linea_clean.replace("**", ""))
+
+        # Mapeo y control estricto de una sola inserción por tema
+        if ("1." in linea_clean or "RESUMEN EJECUTIVO" in linea_clean.upper()) and not insertadas["mapa"]:
             insertar_grafico("mapa", "Figura 1. Modelo Digital Espacial de Anomalías", "Interpolación espacial de la probabilidad de fertilidad magmática e isolíneas de prospección.")
+            insertadas["mapa"] = True
         
-        elif "FIRMA ADAKÍTICA" in linea_clean.upper():
+        elif ("2." in linea_clean or "FIRMA ADAKÍTICA" in linea_clean.upper()) and not insertadas["sry"]:
             insertar_grafico("sry", "Figura 2. Diagrama Sr/Y vs Y", "Relación de fraccionamiento de granate/anfíbol indicativo de la fertilidad magmática.")
+            insertadas["sry"] = True
         
-        elif "ELEMENTOS TRAZA" in linea_clean.upper() or "METALOVECTORES" in linea_clean.upper():
+        elif ("3." in linea_clean or "EVALUACIÓN DE ELEMENTOS" in linea_clean.upper() or "METALOVECTORES" in linea_clean.upper()) and not insertadas["spider"]:
             insertar_grafico("spider", "Figura 3. Perfil Multi-elemental Normalizado", "Spider diagram comparativo entre la población fértil y el background estéril.")
+            insertadas["spider"] = True
         
-        elif "ALTERACIÓN GEOQUÍMICA" in linea_clean.upper() or "TENDENCIAS PETROGENÉTICAS" in linea_clean.upper():
+        elif ("4." in linea_clean or "ALTERACIÓN GEOQUÍMICA" in linea_clean.upper()) and not insertadas["afm"]:
             insertar_grafico("afm", "Figura 4. Diagrama Ternario AFM", "Proyección ternaria Na+K - Fe - Mg para series magmáticas.")
             insertar_grafico("cuk", "Figura 5. Relación Cu vs K", "Indicador de enriquecimiento potásico asociado a sulfuros de cobre.")
             insertar_grafico("vti", "Figura 6. Diagrama V vs Ti", "Condiciones de fugacidad de oxígeno (fO2) y fraccionamiento.")
+            insertadas["afm"] = True
+            insertadas["cuk"] = True
+            insertadas["vti"] = True
 
-    # Guardar en buffer binario
     buffer_word = io.BytesIO()
     doc.save(buffer_word)
     buffer_word.seek(0)
@@ -306,7 +326,7 @@ if archivo_subido is not None:
                             
                             fig_map, ax_map = plt.subplots(figsize=(10, 7))
                             mapa_calor = ax_map.imshow(grid_z.T, extent=(X_coord.min(), X_coord.max(), Y_coord.min(), Y_coord.max()),
-                                                         origin='lower', cmap='coolwarm', alpha=0.85)
+                                                       origin='lower', cmap='coolwarm', alpha=0.85)
                             
                             contornos = ax_map.contour(grid_x, grid_y, grid_z, levels=[0.5, 0.7, 0.9], colors=['yellow', 'orange', 'darkred'], linewidths=1.5, linestyles='--')
                             ax_map.clabel(contornos, inline=True, fontsize=9, fmt='P: %.1f')
