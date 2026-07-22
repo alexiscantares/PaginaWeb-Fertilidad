@@ -15,6 +15,7 @@ from PIL import Image
 from groq import Groq
 import docx
 from docx.shared import Inches, Pt, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 # =====================================================================
 # RUTAS ABSOLUTAS DINÁMICAS
@@ -68,7 +69,6 @@ st.sidebar.header("🎛️ Parámetros del Modelo")
 umbral_corte = st.sidebar.slider("Umbral de Probabilidad (Corte Fértil)", 0.0, 1.0, 0.5, 0.05)
 st.sidebar.markdown("---")
 
-# Función auxiliar para convertir Figuras de Matplotlib a io.BytesIO
 def fig_a_bytes(fig):
     buf = io.BytesIO()
     fig.savefig(buf, format='png', dpi=200, bbox_inches='tight')
@@ -76,43 +76,87 @@ def fig_a_bytes(fig):
     return buf
 
 # =====================================================================
-# DIÁLOGO MODAL (POP-UP) PARA DESCARGAR WORD CON GRÁFICAS
+# DIÁLOGO MODAL (POP-UP) PARA DESCARGAR WORD CON GRÁFICAS INTERCALADAS
 # =====================================================================
 @st.dialog("📄 Descargar Informe NI 43-101 en Word")
 def popup_descargar_word(texto_reporte, figuras_dict):
-    st.write("Generando documento estructurado con figuras adjuntas...")
+    st.write("Generando documento estructurado con figuras intercaladas...")
     
     doc = docx.Document()
     
-    # Título principal
+    # Encabezado Principal
     doc.add_heading("INFORME TÉCNICO DE EXPLORACIÓN GEOQUÍMICA (NI 43-101)", level=0)
-    p = doc.add_paragraph()
-    p.add_run("Evaluación de Fertilidad Magmática e Inferencia Multivariada por IA\n").bold = True
-    
-    # Agregar el cuerpo de texto interpretativo de Groq
-    doc.add_paragraph(texto_reporte)
-    
-    # Sección de Anexos Gráficos en el Word
-    doc.add_page_break()
-    doc.add_heading("ANEXO FOTOGRÁFICO Y DIAGRAMAS GEOQUÍMICOS", level=1)
-    
-    # Incrustar cada figura almacenada en la sesión
-    for titulo, buf_img in figuras_dict.items():
-        if buf_img is not None:
-            doc.add_heading(titulo, level=2)
-            doc.add_picture(buf_img, width=Inches(6.0))
-            doc.add_paragraph("\n")
+    p_sub = doc.add_paragraph()
+    p_sub.add_run("Evaluación de Fertilidad Magmática e Inferencia Multivariada por IA\n").bold = True
+
+    # Función auxiliar para agregar imagen con título y descripción
+    def agregar_figura_doc(clave_figura, titulo_fig, desc_fig):
+        if clave_figura in figuras_dict and figuras_dict[clave_figura] is not None:
+            p_img = doc.add_paragraph()
+            p_img.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            doc.add_picture(figuras_dict[clave_figura], width=Inches(5.5))
+            
+            p_label = doc.add_paragraph()
+            p_label.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run_lbl = p_label.add_run(f"{titulo_fig}: {desc_fig}")
+            run_lbl.italic = True
+            run_lbl.font.size = Pt(9.5)
+            p_label.paragraph_format.space_after = Pt(12)
+
+    # Mapeo de figuras e instrucciones asociadas por sección
+    mapeo_figuras_secciones = {
+        "1. RESUMEN EJECUTIVO E ÍTEM 9": [
+            ("mapa", "Figura 1. Modelo Digital Espacial de Anomalías", "Interpolación espacial de la probabilidad de fertilidad magmática e isolíneas de prospección.")
+        ],
+        "2. FIRMA ADAKÍTICA Y FERTILIDAD MAGMÁTICA": [
+            ("sry", "Figura 2. Diagrama Sr/Y vs Y", "Relación de fraccionamiento de granate/anfíbol indicativo de la fertilidad magmática.")
+        ],
+        "3. EVALUACIÓN DE ELEMENTOS TRAZA Y METALOVECTORES": [
+            ("spider", "Figura 3. Perfil Multi-elemental Normalizado", "Spider diagram comparativo entre la población fértil y el background estéril.")
+        ],
+        "4. ALTERACIÓN GEOQUÍMICA Y TENDENCIAS PETROGENÉTICAS": [
+            ("afm", "Figura 4. Diagrama Ternario AFM", "Proyección ternaria Na+K - Fe - Mg para series magmáticas."),
+            ("cuk", "Figura 5. Relación Cu vs K", "Indicador de enriquecimiento potásico asociado a sulfuros de cobre."),
+            ("vti", "Figura 6. Diagrama V vs Ti", "Condiciones de fugacidad de oxígeno (fO2) y fraccionamiento.")
+        ]
+    }
+
+    # Procesar párrafos e intercalar las imágenes según los encabezados
+    lineas = texto_reporte.split('\n')
+    seccion_actual = ""
+
+    for linea in lineas:
+        linea_str = linea.strip()
+        if not linea_str:
+            continue
+            
+        if linea_str.startswith(("1.", "2.", "3.", "4.", "5.", "**1.", "**2.", "**3.", "**4.", "**5.")):
+            # Si cambiamos de sección, verificar si la sección anterior tenía imágenes pendientes que agregar
+            doc.add_heading(linea_str.replace("**", ""), level=2)
+            
+            for key_sec, figs in mapeo_figuras_secciones.items():
+                if key_sec in linea_str.upper():
+                    seccion_actual = key_sec
+        else:
+            doc.add_paragraph(linea_str)
+            
+            # Insertar las imágenes correspondientes a la sección activa
+            if seccion_actual in mapeo_figuras_secciones:
+                for key_fig, tit_fig, desc_fig in mapeo_figuras_secciones[seccion_actual]:
+                    agregar_figura_doc(key_fig, tit_fig, desc_fig)
+                # Limpiar sección para evitar duplicar inserción de imágenes
+                del mapeo_figuras_secciones[seccion_actual]
 
     # Guardar en buffer binario
     buffer_word = io.BytesIO()
     doc.save(buffer_word)
     buffer_word.seek(0)
     
-    st.success("✅ Documento Word completo (Texto + Gráficas) generado con éxito.")
+    st.success("✅ Documento Word estructurado generado con éxito.")
     st.download_button(
         label="📥 Descargar Documento Completo (.docx)",
         data=buffer_word,
-        file_name="Informe_Tecnico_NI43101_Con_Graficas.docx",
+        file_name="Informe_Tecnico_NI43101_Intercalado.docx",
         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     )
 
@@ -156,7 +200,6 @@ if archivo_subido is not None:
                 if 'SR' in df_input.columns and 'Y' in df_input.columns:
                     df_input['Sr_Y'] = df_input['SR'] / df_input['Y']
 
-                # Diccionario en Session State para capturar las imágenes
                 if 'figuras_informe' not in st.session_state:
                     st.session_state.figuras_informe = {}
 
@@ -190,8 +233,8 @@ if archivo_subido is not None:
                     st.subheader("📉 Evaluaciones Geoquímicas Individuales")
                     cmap_prob = 'coolwarm'
                     
-                    # Figura 1: Sr/Y vs Y
-                    st.markdown("### Figura 1: Diagrama de Fertilidad Magmática ($Sr/Y$ vs $Y$)")
+                    # Figura Sr/Y vs Y
+                    st.markdown("### Figura: Diagrama de Fertilidad Magmática ($Sr/Y$ vs $Y$)")
                     fig1, ax1 = plt.subplots(figsize=(8, 4.5))
                     sns.scatterplot(data=df_input, x='Y', y='Sr_Y', hue='Prob_Fertilidad', palette=cmap_prob, s=30, alpha=0.8, ax=ax1)
                     ax1.set_xscale('log')
@@ -201,12 +244,12 @@ if archivo_subido is not None:
                     ax1.set_ylabel('Ratio Sr / Y')
                     ax1.legend(loc='best')
                     st.pyplot(fig1)
-                    st.session_state.figuras_informe["Figura 1: Diagrama Sr/Y vs Y"] = fig_a_bytes(fig1)
+                    st.session_state.figuras_informe["sry"] = fig_a_bytes(fig1)
 
                     st.markdown("---")
 
-                    # Figura 2: Spider Diagram
-                    st.markdown("### Figura 2: Perfil Multi-elemental Normalizado (Spider Diagram)")
+                    # Figura Spider Diagram
+                    st.markdown("### Figura: Perfil Multi-elemental Normalizado (Spider Diagram)")
                     fig2, ax2 = plt.subplots(figsize=(9, 4.5))
                     trace_elems = ['LA', 'SR', 'Y', 'ZR', 'TI', 'V', 'SC', 'CU', 'ZN', 'PB']
                     means_fert = df_input[df_input['Clasificacion_IA'] == 'Fértil'][trace_elems].mean()
@@ -216,12 +259,12 @@ if archivo_subido is not None:
                     ax2.set_ylabel('Concentración Log10 (ppm)')
                     ax2.legend()
                     st.pyplot(fig2)
-                    st.session_state.figuras_informe["Figura 2: Spider Diagram Multi-elemental"] = fig_a_bytes(fig2)
+                    st.session_state.figuras_informe["spider"] = fig_a_bytes(fig2)
 
                     st.markdown("---")
 
-                    # Figura 3: Ternario AFM
-                    st.markdown("### Figura 3: Diagrama Ternario AFM ($Na+K$ - $Fe$ - $Mg$)")
+                    # Figura Ternario AFM
+                    st.markdown("### Figura: Diagrama Ternario AFM ($Na+K$ - $Fe$ - $Mg$)")
                     fig3, ax3 = plt.subplots(figsize=(7, 5))
                     A, F, M = df_input['NA'] + df_input['K'], df_input['FE'], df_input['MG']
                     Total = A + F + M + 1e-5
@@ -235,12 +278,12 @@ if archivo_subido is not None:
                     ax3.axis('off')
                     fig3.colorbar(sc, ax=ax3, label='Probabilidad IA')
                     st.pyplot(fig3)
-                    st.session_state.figuras_informe["Figura 3: Diagrama Ternario AFM"] = fig_a_bytes(fig3)
+                    st.session_state.figuras_informe["afm"] = fig_a_bytes(fig3)
 
                     st.markdown("---")
 
-                    # Figura 4: Cu vs K
-                    st.markdown("### Figura 4: Relación Cu vs K (Indicador de Alteración Potásica)")
+                    # Figura Cu vs K
+                    st.markdown("### Figura: Relación Cu vs K (Indicador de Alteración Potásica)")
                     fig4, ax4 = plt.subplots(figsize=(8, 4.5))
                     sns.scatterplot(data=df_input, x='K', y='CU', hue='Prob_Fertilidad', palette=cmap_prob, s=30, alpha=0.8, ax=ax4)
                     ax4.set_xscale('log')
@@ -248,12 +291,12 @@ if archivo_subido is not None:
                     ax4.set_xlabel('Potasio (K) [%]')
                     ax4.set_ylabel('Cobre (Cu) [ppm]')
                     st.pyplot(fig4)
-                    st.session_state.figuras_informe["Figura 4: Relacion Cu vs K"] = fig_a_bytes(fig4)
+                    st.session_state.figuras_informe["cuk"] = fig_a_bytes(fig4)
 
                     st.markdown("---")
 
-                    # Figura 5: V vs Ti
-                    st.markdown("### Figura 5: Diagrama V vs Ti (Estado de Oxidación y Fraccionamiento)")
+                    # Figura V vs Ti
+                    st.markdown("### Figura: Diagrama V vs Ti (Estado de Oxidación y Fraccionamiento)")
                     fig5, ax5 = plt.subplots(figsize=(8, 4.5))
                     sns.scatterplot(data=df_input, x='TI', y='V', hue='Prob_Fertilidad', palette=cmap_prob, s=30, alpha=0.8, ax=ax5)
                     ax5.set_xscale('log')
@@ -261,7 +304,7 @@ if archivo_subido is not None:
                     ax5.set_xlabel('Titanio (Ti) [ppm]')
                     ax5.set_ylabel('Vanadio (V) [ppm]')
                     st.pyplot(fig5)
-                    st.session_state.figuras_informe["Figura 5: Diagrama V vs Ti"] = fig_a_bytes(fig5)
+                    st.session_state.figuras_informe["vti"] = fig_a_bytes(fig5)
 
                 # ----- PESTAÑA 3: MAPA GEOQUÍMICO ESPACIAL DE ANOMALÍAS -----
                 with tab3:
@@ -293,7 +336,7 @@ if archivo_subido is not None:
                             ax_map.legend(loc='upper right')
                             
                             st.pyplot(fig_map)
-                            st.session_state.figuras_informe["Mapa Espacial: Interpolacion de Anomalías Espaciales"] = fig_a_bytes(fig_map)
+                            st.session_state.figuras_informe["mapa"] = fig_a_bytes(fig_map)
 
                 # ----- PESTAÑA 4: ASISTENTE GROQ & GENERACIÓN NI 43-101 -----
                 with tab4:
