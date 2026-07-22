@@ -77,12 +77,9 @@ def fig_a_bytes(fig):
     return buf
 
 # =====================================================================
-# DIÁLOGO MODAL PARA DESCARGAR WORD CON GRÁFICAS ÚNICAS INTERCALADAS
+# FUNCIÓN GENERADORA DE DOCUMENTO WORD CON GRÁFICOS MULTIVARIADOS
 # =====================================================================
-@st.dialog("📄 Descargar Informe NI 43-101 en Word")
-def popup_descargar_word(texto_reporte, figuras_dict):
-    st.write("Generando documento estructurado con figuras intercaladas...")
-    
+def generar_documento_word(texto_reporte, figuras_dict):
     doc = docx.Document()
     
     # Encabezado Principal
@@ -160,14 +157,7 @@ def popup_descargar_word(texto_reporte, figuras_dict):
     buffer_word = io.BytesIO()
     doc.save(buffer_word)
     buffer_word.seek(0)
-    
-    st.success("✅ Documento Word estructurado generado con éxito.")
-    st.download_button(
-        label="📥 Descargar Documento Completo (.docx)",
-        data=buffer_word,
-        file_name="Informe_Tecnico_NI43101_Intercalado.docx",
-        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    )
+    return buffer_word
 
 # =====================================================================
 # ÁREA PRINCIPAL DE PROCESAMIENTO
@@ -416,11 +406,18 @@ ESTRUCTURA OBLIGATORIA DEL REPORTE:
                     if 'reporte_groq' in st.session_state:
                         st.success("✅ Informe Técnico NI 43-101 Generado Con Éxito.")
                         
-                        if st.button("📥 Abrir Menú de Exportación (.docx)"):
-                            popup_descargar_word(
-                                st.session_state.reporte_groq, 
-                                st.session_state.get('figuras_informe', {})
-                            )
+                        # Generación directa de buffer para la descarga sin diálogos/popups
+                        buffer_word = generar_documento_word(
+                            st.session_state.reporte_groq, 
+                            st.session_state.get('figuras_informe', {})
+                        )
+
+                        st.download_button(
+                            label="📥 Descargar Documento con Gráficos Multivariados (.docx)",
+                            data=buffer_word,
+                            file_name="Informe_Tecnico_NI43101_Multivariado.docx",
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        )
                             
                         st.markdown("---")
                         st.markdown(st.session_state.reporte_groq)
