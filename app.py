@@ -232,49 +232,70 @@ if archivo_subido is not None:
                     else:
                         st.warning("⚠️ El archivo subido no contiene columnas de 'LATITUD' y 'LONGITUD'.")
 
-                # ----- PESTAÑA 4: ASISTENTE MULTIMODAL (HUGGING FACE) -----
-                with tab4:
-                    st.subheader("Interpretación Geológica Asistida por IA")
-                    hf_token = st.text_input("Ingresa tu Hugging Face Access Token:", type="password")
+               import io
+import streamlit as st
+from PIL import Image
+from google import genai
+from google.genai import types
+
+# ----- PESTAÑA 4: ASISTENTE MULTIMODAL (GOOGLE GEMINI) -----
+with tab4:
+    st.subheader("🤖 Interpretación Geológica Automática con Gemini")
+    
+    # Obtener la API Key desde los secretos de Streamlit o por entrada del usuario
+    gemini_api_key = st.secrets.get("GEMINI_API_KEY") or st.text_input(
+        "Ingresa tu Google Gemini API Key:", 
+        type="password", 
+        help="Obtén tu API key en https://aistudio.google.com/"
+    )
+    
+    if not gemini_api_key:
+        st.warning("⚠️ Ingresa tu API Key de Gemini para activar la generación del análisis y reporte.")
+    else:
+        if st.button("📄 Generar Interpretación e Informe NI 43-101"):
+            try:
+                with st.spinner("Enviando gráficos y matriz analítica a Gemini..."):
+                    # 1. Convertir la figura de matplotlib en una imagen PIL
+                    buf = io.BytesIO()
+                    fig.savefig(buf, format='png', bbox_inches='tight', dpi=200)
+                    buf.seek(0)
+                    imagen_graficos = Image.open(buf)
                     
-                    if not hf_token:
-                        st.warning("⚠️ Ingresa tu Token de Hugging Face para activar el análisis.")
-                    else:
-                        try:
-                            with st.spinner("Procesando gráficos..."):
-                                buf = io.BytesIO()
-                                fig.savefig(buf, format='png', bbox_inches='tight')
-                                buf.seek(0)
-                                base64_image = base64.b64encode(buf.read()).decode('utf-8')
-                                
-                                prompt_texto = f"""
-                                Actúa como un geoquímico experto. Acabo de procesar {total_muestras} muestras y el {porcentaje_anomalias:.1f}% tienen firmas de fertilidad.
-                                Analiza los gráficos e interpreta:
-                                1. Firma adakítica en Sr/Y vs Y.
-                                2. Patrones en el diagrama Spider.
-                                3. Tendencia calcoalcalina en AFM.
-                                4. Estado de oxidación e implicaciones petrogenéticas.
-                                """
-                                
-                                API_URL = "https://api-inference.huggingface.co/models/Qwen/Qwen2-VL-7B-Instruct"
-                                headers = {"Authorization": f"Bearer {hf_token}"}
-                                payload = {
-                                    "inputs": {
-                                        "image": f"data:image/png;base64,{base64_image}",
-                                        "prompt": prompt_texto
-                                    }
-                                }
-                                
-                                response = requests.post(API_URL, headers=headers, json=payload)
-                                resultado = response.json()
-                                
-                                if response.status_code == 200:
-                                    st.success("✅ Análisis completado con éxito.")
-                                    st.markdown(resultado[0]['generated_text'] if isinstance(resultado, list) else resultado)
-                                else:
-                                    st.error(f"Error en la API de Hugging Face: {resultado}")
-                        except Exception as e:
-                            st.error(f"⚠️ Error al procesar la solicitud: {e}")
+                    # 2. Inicializar el cliente oficial de Gemini
+                    client = genai.Client(api_key=gemini_api_key)
+                    
+                    # 3. Construir el prompt estructurado para la normativa NI 43-101
+                    prompt_ni43101 = f"""
+                    Actúa como un Geólogo Calificado (QP / Persona Calificada) especializado en exploración geoquímica y depósitos porfídicos/epitermales.
+                    
+                    RESUMEN ANALÍTICO DE LA CAMPAÑA:
+                    - Total de muestras procesadas: {total_muestras}
+                    - Blancos fértiles detectados (Clasificación IA): {muestras_fertiles} ({porcentaje_anomalias:.2f}% de anomalía)
+                    - Umbral de corte de probabilidad aplicado: {umbral_corte}
+                    
+                    INSTRUCCIONES DE ANÁLISIS:
+                    A partir de la imagen adjunta que contiene los 6 diagramas geoquímicos multivariados (Sr/Y vs Y, Spider de elementos traza, Ternario AFM, Fe vs Cr, Cu vs K y V vs Ti), elabora una sección técnica rigurosa compatible con el informe NI 43-101 (Ítem 13: Procesamiento y Pruebas Metalúrgicas / Ítem 9: Exploración):
+                    
+                    1. **Firma Adakítica y Fertilidad Magmática:** Interpretación de la relación Sr/Y vs Y y fraccionamiento de anfíbol/granate.
+                    2. **Patrones de Elementos Traza (Spider):** Anomalías de Eu, Ce, enriquecimiento de LILE sobre HFSE y firma de arco.
+                    3. **Afinedades Petrogenéticas y Alteración:** Tendencia calcoalcalina en AFM, grado de alteración potásica (Cu vs K) y estado de oxidación del magma (V vs Ti).
+                    4. **Conclusión y Recomendaciones de Prospectividad:** Evaluación global del potencial económico del área y blancos prioritarios.
+                    """
+                    
+                    # 4. Invocación del modelo Gemini 1.5
+                    response = client.models.generate_content(
+                        model='gemini-1.5-pro',
+                        contents=[imagen_graficos, prompt_ni43101],
+                        config=types.GenerateContentConfig(
+                            temperature=0.2, # Baja temperatura para alta precisión técnica
+                        )
+                    )
+                    
+                    st.success("✅ Análisis geológico e informe técnico generado exitosamente.")
+                    st.markdown(response.text)
+                    
+            except Exception as e:
+                st.error(f"⚠️ Error al comunicar con la API de Gemini: {e}")
 
                 # =====================================================================
                 # DESCARGAS
