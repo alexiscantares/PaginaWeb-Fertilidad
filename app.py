@@ -12,8 +12,7 @@ import seaborn as sns
 from scipy.interpolate import griddata
 from sklearn.impute import SimpleImputer
 from PIL import Image
-from google import genai
-from google.genai import types
+import openai
 
 # =====================================================================
 # RUTAS ABSOLUTAS DINÁMICAS (Evita KeyErrors y FileNotFoundError en Cloud)
@@ -119,7 +118,7 @@ if archivo_subido is not None:
                 # =====================================================================
                 # CREACIÓN DE PESTAÑAS (TABS)
                 # =====================================================================
-                tab1, tab2, tab3, tab4 = st.tabs(["📄 Resumen y Datos", "📉 Diagramas Geoquímicos", "🗺️ Mapa Espacial", "🤖 Asistente Gemini"])
+                tab1, tab2, tab3, tab4 = st.tabs(["📄 Resumen y Datos", "📉 Diagramas Geoquímicos", "🗺️ Mapa Espacial", "🤖 Asistente OpenAI"])
                 
                 # ----- PESTAÑA 1: DATOS Y KPIS -----
                 with tab1:
@@ -242,28 +241,29 @@ if archivo_subido is not None:
                     else:
                         st.warning("⚠️ El archivo subido no contiene columnas de 'LATITUD' y 'LONGITUD'.")
 
-                # ----- PESTAÑA 4: ASISTENTE MULTIMODAL (GOOGLE GEMINI) -----
+                # ----- PESTAÑA 4: ASISTENTE MULTIMODAL (OPENAI GPT-4o) -----
                 with tab4:
-                    st.subheader("🤖 Interpretación Geológica Automática con Gemini")
+                    st.subheader("🤖 Interpretación Geológica Automática con OpenAI (GPT-4o)")
                     
-                    gemini_api_key = st.secrets.get("GEMINI_API_KEY") or st.text_input(
-                        "Ingresa tu Google Gemini API Key:", 
+                    openai_api_key = st.secrets.get("OPENAI_API_KEY") or st.text_input(
+                        "Ingresa tu OpenAI API Key:", 
                         type="password", 
-                        help="Obtén tu API key en https://aistudio.google.com/"
+                        help="Obtén tu API key en https://platform.openai.com/api-keys"
                     )
                     
-                    if not gemini_api_key:
-                        st.warning("⚠️ Ingresa tu API Key de Gemini para activar la generación del análisis y reporte.")
+                    if not openai_api_key:
+                        st.warning("⚠️ Ingresa tu API Key de OpenAI para activar la generación del análisis y reporte.")
                     else:
                         if st.button("📄 Generar Interpretación e Informe NI 43-101"):
-                            with st.spinner("Enviando gráficos y matriz analítica a Gemini..."):
+                            with st.spinner("Enviando gráficos y matriz analítica a OpenAI (GPT-4o)..."):
                                 try:
+                                    # Convertir los gráficos a formato Base64 para OpenAI
                                     buf = io.BytesIO()
-                                    fig.savefig(buf, format='png', bbox_inches='tight', dpi=200)
+                                    fig.savefig(buf, format='png', bbox_inches='tight', dpi=150)
                                     buf.seek(0)
-                                    imagen_graficos = Image.open(buf)
+                                    base64_image = base64.b64encode(buf.getvalue()).decode('utf-8')
                                     
-                                    client = genai.Client(api_key=gemini_api_key)
+                                    client = openai.OpenAI(api_key=openai_api_key)
                                     
                                     prompt_ni43101 = f"""
                                     Actúa como un Geólogo Calificado (QP / Persona Calificada) especializado en exploración geoquímica y depósitos porfídicos/epitermales.
@@ -282,24 +282,36 @@ if archivo_subido is not None:
                                     4. **Conclusión y Recomendaciones de Prospectividad:** Evaluación global del potencial económico del área y blancos prioritarios.
                                     """
                                     
-                                    response = client.models.generate_content(
-                                        model='gemini-2.5-pro',
-                                        contents=[imagen_graficos, prompt_ni43101],
-                                        config=types.GenerateContentConfig(
-                                            temperature=0.2,
-                                        )
+                                    response = client.chat.completions.create(
+                                        model="gpt-4o",
+                                        messages=[
+                                            {
+                                                "role": "user",
+                                                "content": [
+                                                    {"type": "text", "text": prompt_ni43101},
+                                                    {
+                                                        "type": "image_url",
+                                                        "image_url": {
+                                                            "url": f"data:image/png;base64,{base64_image}"
+                                                        },
+                                                    },
+                                                ],
+                                            }
+                                        ],
+                                        max_tokens=2000,
+                                        temperature=0.2,
                                     )
                                     
                                     # Guardamos la respuesta en session_state para persistencia
-                                    st.session_state.reporte_gemini = response.text
+                                    st.session_state.reporte_openai = response.choices[0].message.content
                                     
                                 except Exception as e:
-                                    st.error(f"⚠️ Error al comunicar con la API de Gemini: {e}")
+                                    st.error(f"⚠️ Error al comunicar con la API de OpenAI: {e}")
 
                         # Si ya existe un reporte generado previamente en la sesión, lo mostramos
-                        if 'reporte_gemini' in st.session_state:
+                        if 'reporte_openai' in st.session_state:
                             st.success("✅ Análisis geológico e informe técnico generado exitosamente.")
-                            st.markdown(st.session_state.reporte_gemini)
+                            st.markdown(st.session_state.reporte_openai)
 
                 # =====================================================================
                 # DESCARGAS
