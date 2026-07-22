@@ -12,7 +12,7 @@ import seaborn as sns
 from scipy.interpolate import griddata
 from sklearn.impute import SimpleImputer
 from PIL import Image
-import openai
+from groq import Groq
 
 # =====================================================================
 # RUTAS ABSOLUTAS DINÁMICAS (Evita KeyErrors y FileNotFoundError en Cloud)
@@ -118,7 +118,7 @@ if archivo_subido is not None:
                 # =====================================================================
                 # CREACIÓN DE PESTAÑAS (TABS)
                 # =====================================================================
-                tab1, tab2, tab3, tab4 = st.tabs(["📄 Resumen y Datos", "📉 Diagramas Geoquímicos", "🗺️ Mapa Espacial", "🤖 Asistente OpenAI"])
+                tab1, tab2, tab3, tab4 = st.tabs(["📄 Resumen y Datos", "📉 Diagramas Geoquímicos", "🗺️ Mapa Espacial", "🤖 Asistente Groq"])
                 
                 # ----- PESTAÑA 1: DATOS Y KPIS -----
                 with tab1:
@@ -241,29 +241,29 @@ if archivo_subido is not None:
                     else:
                         st.warning("⚠️ El archivo subido no contiene columnas de 'LATITUD' y 'LONGITUD'.")
 
-                # ----- PESTAÑA 4: ASISTENTE MULTIMODAL (OPENAI GPT-4o) -----
+                # ----- PESTAÑA 4: ASISTENTE MULTIMODAL (GROQ LLAMA 3.2 VISION) -----
                 with tab4:
-                    st.subheader("🤖 Interpretación Geológica Automática con OpenAI (GPT-4o)")
+                    st.subheader("🤖 Interpretación Geológica Automática con Groq (Llama 3.2 Vision)")
                     
-                    openai_api_key = st.secrets.get("OPENAI_API_KEY") or st.text_input(
-                        "Ingresa tu OpenAI API Key:", 
+                    groq_api_key = st.secrets.get("GROQ_API_KEY") or st.text_input(
+                        "Ingresa tu Groq API Key:", 
                         type="password", 
-                        help="Obtén tu API key en https://platform.openai.com/api-keys"
+                        help="Obtén tu API key GRATIS en https://console.groq.com/keys"
                     )
                     
-                    if not openai_api_key:
-                        st.warning("⚠️ Ingresa tu API Key de OpenAI para activar la generación del análisis y reporte.")
+                    if not groq_api_key:
+                        st.warning("⚠️ Ingresa tu API Key de Groq para activar la generación del análisis y reporte.")
                     else:
                         if st.button("📄 Generar Interpretación e Informe NI 43-101"):
-                            with st.spinner("Enviando gráficos y matriz analítica a OpenAI (GPT-4o)..."):
+                            with st.spinner("Enviando gráficos y matriz analítica a Groq (Llama 3.2 Vision)..."):
                                 try:
-                                    # Convertir los gráficos a formato Base64 para OpenAI
+                                    # Convertir los gráficos a formato Base64 para Groq
                                     buf = io.BytesIO()
                                     fig.savefig(buf, format='png', bbox_inches='tight', dpi=150)
                                     buf.seek(0)
                                     base64_image = base64.b64encode(buf.getvalue()).decode('utf-8')
                                     
-                                    client = openai.OpenAI(api_key=openai_api_key)
+                                    client = Groq(api_key=groq_api_key)
                                     
                                     prompt_ni43101 = f"""
                                     Actúa como un Geólogo Calificado (QP / Persona Calificada) especializado en exploración geoquímica y depósitos porfídicos/epitermales.
@@ -283,7 +283,7 @@ if archivo_subido is not None:
                                     """
                                     
                                     response = client.chat.completions.create(
-                                        model="gpt-4o",
+                                        model="llama-3.2-11b-vision-preview",
                                         messages=[
                                             {
                                                 "role": "user",
@@ -303,15 +303,15 @@ if archivo_subido is not None:
                                     )
                                     
                                     # Guardamos la respuesta en session_state para persistencia
-                                    st.session_state.reporte_openai = response.choices[0].message.content
+                                    st.session_state.reporte_groq = response.choices[0].message.content
                                     
                                 except Exception as e:
-                                    st.error(f"⚠️ Error al comunicar con la API de OpenAI: {e}")
+                                    st.error(f"⚠️ Error al comunicar con la API de Groq: {e}")
 
                         # Si ya existe un reporte generado previamente en la sesión, lo mostramos
-                        if 'reporte_openai' in st.session_state:
+                        if 'reporte_groq' in st.session_state:
                             st.success("✅ Análisis geológico e informe técnico generado exitosamente.")
-                            st.markdown(st.session_state.reporte_openai)
+                            st.markdown(st.session_state.reporte_groq)
 
                 # =====================================================================
                 # DESCARGAS
