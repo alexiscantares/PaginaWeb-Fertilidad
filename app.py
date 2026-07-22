@@ -1,3 +1,8 @@
+import io
+import json
+import base64
+from pathlib import Path
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -5,12 +10,10 @@ import joblib
 import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy.interpolate import griddata
-import json
-import io
-import base64
-import requests
-from pathlib import Path
-from sklearn.impute import SimpleImputer  # <--- Importación agregada
+from sklearn.impute import SimpleImputer
+from PIL import Image
+from google import genai
+from google.genai import types
 
 # =====================================================================
 # RUTAS ABSOLUTAS DINÁMICAS (Evita KeyErrors y FileNotFoundError en Cloud)
@@ -45,10 +48,12 @@ except Exception as e:
     st.error(f"❌ Error al cargar los modelos (.pkl): {e}")
     st.stop()
 
-elementos_requeridos = ['AU', 'AG', 'CU', 'PB', 'ZN', 'MO', 'NI', 'CO', 'CD', 'BI',
-                        'FE', 'MN', 'TE', 'BA', 'CR', 'V', 'SN', 'W', 'LA', 'AL',
-                        'MG', 'CA', 'NA', 'K', 'SR', 'Y', 'GA', 'LI', 'NB', 'SC',
-                        'TA', 'TI', 'ZR', 'AS', 'SB', 'HG', 'PT', 'PD']
+elementos_requeridos = [
+    'AU', 'AG', 'CU', 'PB', 'ZN', 'MO', 'NI', 'CO', 'CD', 'BI',
+    'FE', 'MN', 'TE', 'BA', 'CR', 'V', 'SN', 'W', 'LA', 'AL',
+    'MG', 'CA', 'NA', 'K', 'SR', 'Y', 'GA', 'LI', 'NB', 'SC',
+    'TA', 'TI', 'ZR', 'AS', 'SB', 'HG', 'PT', 'PD'
+]
 
 # =====================================================================
 # PANEL LATERAL (SIDEBAR)
@@ -76,7 +81,7 @@ if archivo_subido is not None:
     if st.sidebar.button("🚀 Ejecutar Modelo Predictivo"):
         with st.spinner('Procesando datos y renderizando gráficos espaciales...'):
             try:
-               # 1. Inferencia Predictiva y Manejo de NaNs
+                # 1. Inferencia Predictiva y Manejo de NaNs
                 datos_modelo = df_input[elementos_requeridos].copy()
                 
                 # VERIFICACIÓN E IMPUTACIÓN DE VALORES FALTANTES (NaN)
@@ -87,7 +92,6 @@ if archivo_subido is not None:
                         f"en los elementos requeridos. Se aplicó imputación automática por mediana para continuar el procesamiento."
                     )
                     imputer = SimpleImputer(strategy='median')
-                    # Imputamos directamente sobre las columnas requeridas sin romper el DataFrame
                     datos_modelo[elementos_requeridos] = imputer.fit_transform(datos_modelo)
                     datos_modelo = datos_modelo.fillna(0) # Respaldo si alguna columna entera era NaN
                     df_input[elementos_requeridos] = datos_modelo[elementos_requeridos]
@@ -232,70 +236,59 @@ if archivo_subido is not None:
                     else:
                         st.warning("⚠️ El archivo subido no contiene columnas de 'LATITUD' y 'LONGITUD'.")
 
-               import io
-import streamlit as st
-from PIL import Image
-from google import genai
-from google.genai import types
-
-# ----- PESTAÑA 4: ASISTENTE MULTIMODAL (GOOGLE GEMINI) -----
-with tab4:
-    st.subheader("🤖 Interpretación Geológica Automática con Gemini")
-    
-    # Obtener la API Key desde los secretos de Streamlit o por entrada del usuario
-    gemini_api_key = st.secrets.get("GEMINI_API_KEY") or st.text_input(
-        "Ingresa tu Google Gemini API Key:", 
-        type="password", 
-        help="Obtén tu API key en https://aistudio.google.com/"
-    )
-    
-    if not gemini_api_key:
-        st.warning("⚠️ Ingresa tu API Key de Gemini para activar la generación del análisis y reporte.")
-    else:
-        if st.button("📄 Generar Interpretación e Informe NI 43-101"):
-            try:
-                with st.spinner("Enviando gráficos y matriz analítica a Gemini..."):
-                    # 1. Convertir la figura de matplotlib en una imagen PIL
-                    buf = io.BytesIO()
-                    fig.savefig(buf, format='png', bbox_inches='tight', dpi=200)
-                    buf.seek(0)
-                    imagen_graficos = Image.open(buf)
+                # ----- PESTAÑA 4: ASISTENTE MULTIMODAL (GOOGLE GEMINI) -----
+                with tab4:
+                    st.subheader("🤖 Interpretación Geológica Automática con Gemini")
                     
-                    # 2. Inicializar el cliente oficial de Gemini
-                    client = genai.Client(api_key=gemini_api_key)
-                    
-                    # 3. Construir el prompt estructurado para la normativa NI 43-101
-                    prompt_ni43101 = f"""
-                    Actúa como un Geólogo Calificado (QP / Persona Calificada) especializado en exploración geoquímica y depósitos porfídicos/epitermales.
-                    
-                    RESUMEN ANALÍTICO DE LA CAMPAÑA:
-                    - Total de muestras procesadas: {total_muestras}
-                    - Blancos fértiles detectados (Clasificación IA): {muestras_fertiles} ({porcentaje_anomalias:.2f}% de anomalía)
-                    - Umbral de corte de probabilidad aplicado: {umbral_corte}
-                    
-                    INSTRUCCIONES DE ANÁLISIS:
-                    A partir de la imagen adjunta que contiene los 6 diagramas geoquímicos multivariados (Sr/Y vs Y, Spider de elementos traza, Ternario AFM, Fe vs Cr, Cu vs K y V vs Ti), elabora una sección técnica rigurosa compatible con el informe NI 43-101 (Ítem 13: Procesamiento y Pruebas Metalúrgicas / Ítem 9: Exploración):
-                    
-                    1. **Firma Adakítica y Fertilidad Magmática:** Interpretación de la relación Sr/Y vs Y y fraccionamiento de anfíbol/granate.
-                    2. **Patrones de Elementos Traza (Spider):** Anomalías de Eu, Ce, enriquecimiento de LILE sobre HFSE y firma de arco.
-                    3. **Afinedades Petrogenéticas y Alteración:** Tendencia calcoalcalina en AFM, grado de alteración potásica (Cu vs K) y estado de oxidación del magma (V vs Ti).
-                    4. **Conclusión y Recomendaciones de Prospectividad:** Evaluación global del potencial económico del área y blancos prioritarios.
-                    """
-                    
-                    # 4. Invocación del modelo Gemini 1.5
-                    response = client.models.generate_content(
-                        model='gemini-1.5-pro',
-                        contents=[imagen_graficos, prompt_ni43101],
-                        config=types.GenerateContentConfig(
-                            temperature=0.2, # Baja temperatura para alta precisión técnica
-                        )
+                    gemini_api_key = st.secrets.get("GEMINI_API_KEY") or st.text_input(
+                        "Ingresa tu Google Gemini API Key:", 
+                        type="password", 
+                        help="Obtén tu API key en https://aistudio.google.com/"
                     )
                     
-                    st.success("✅ Análisis geológico e informe técnico generado exitosamente.")
-                    st.markdown(response.text)
-                    
-            except Exception as e:
-                st.error(f"⚠️ Error al comunicar con la API de Gemini: {e}")
+                    if not gemini_api_key:
+                        st.warning("⚠️ Ingresa tu API Key de Gemini para activar la generación del análisis y reporte.")
+                    else:
+                        if st.button("📄 Generar Interpretación e Informe NI 43-101"):
+                            try:
+                                with st.spinner("Enviando gráficos y matriz analítica a Gemini..."):
+                                    buf = io.BytesIO()
+                                    fig.savefig(buf, format='png', bbox_inches='tight', dpi=200)
+                                    buf.seek(0)
+                                    imagen_graficos = Image.open(buf)
+                                    
+                                    client = genai.Client(api_key=gemini_api_key)
+                                    
+                                    prompt_ni43101 = f"""
+                                    Actúa como un Geólogo Calificado (QP / Persona Calificada) especializado en exploración geoquímica y depósitos porfídicos/epitermales.
+                                    
+                                    RESUMEN ANALÍTICO DE LA CAMPAÑA:
+                                    - Total de muestras procesadas: {total_muestras}
+                                    - Blancos fértiles detectados (Clasificación IA): {muestras_fertiles} ({porcentaje_anomalias:.2f}% de anomalía)
+                                    - Umbral de corte de probabilidad aplicado: {umbral_corte}
+                                    
+                                    INSTRUCCIONES DE ANÁLISIS:
+                                    A partir de la imagen adjunta que contiene los 6 diagramas geoquímicos multivariados (Sr/Y vs Y, Spider de elementos traza, Ternario AFM, Fe vs Cr, Cu vs K y V vs Ti), elabora una sección técnica rigurosa compatible con el informe NI 43-101 (Ítem 13: Procesamiento y Pruebas Metalúrgicas / Ítem 9: Exploración):
+                                    
+                                    1. **Firma Adakítica y Fertilidad Magmática:** Interpretación de la relación Sr/Y vs Y y fraccionamiento de anfíbol/granate.
+                                    2. **Patrones de Elementos Traza (Spider):** Anomalías de Eu, Ce, enriquecimiento de LILE sobre HFSE y firma de arco.
+                                    3. **Afinidades Petrogenéticas y Alteración:** Tendencia calcoalcalina en AFM, grado de alteración potásica (Cu vs K) y estado de oxidación del magma (V vs Ti).
+                                    4. **Conclusión y Recomendaciones de Prospectividad:** Evaluación global del potencial económico del área y blancos prioritarios.
+                                    """
+                                    
+                                    response = client.models.generate_content(
+                                        model='gemini-1.5-pro',
+                                        contents=[imagen_graficos, prompt_ni43101],
+                                        config=types.GenerateContentConfig(
+                                            temperature=0.2,
+                                        )
+                                    )
+                                    
+                                    st.success("✅ Análisis geológico e informe técnico generado exitosamente.")
+                                    st.markdown(response.text)
+                                    
+                            except Exception as e:
+                                st.error(f"⚠️ Error al comunicar con la API de Gemini: {e}")
 
                 # =====================================================================
                 # DESCARGAS
