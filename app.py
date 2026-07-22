@@ -241,77 +241,81 @@ if archivo_subido is not None:
                     else:
                         st.warning("⚠️ El archivo subido no contiene columnas de 'LATITUD' y 'LONGITUD'.")
 
-                # ----- PESTAÑA 4: ASISTENTE MULTIMODAL (GROQ LLAMA 3.2 VISION) -----
-                with tab4:
-                    st.subheader("🤖 Interpretación Geológica Automática con Groq (Llama 3.2 Vision)")
+               # ----- PESTAÑA 4: ASISTENTE GEOLÓGICO (GROQ LLAMA 3.3 70B) -----
+with tab4:
+    st.subheader("🤖 Interpretación Geológica Automática con Groq (Llama 3.3 70B)")
+    
+    groq_api_key = st.secrets.get("GROQ_API_KEY") or st.text_input(
+        "Ingresa tu Groq API Key:", 
+        type="password", 
+        help="Obtén tu API key GRATIS en https://console.groq.com/keys"
+    )
+    
+    if not groq_api_key:
+        st.warning("⚠️ Ingresa tu API Key de Groq para activar la generación del análisis y reporte.")
+    else:
+        if st.button("📄 Generar Interpretación e Informe NI 43-101"):
+            with st.spinner("Procesando síntesis geoquímica y consultando a Groq..."):
+                try:
+                    # 1. Extraer métricas clave de la matriz
+                    df_fertil = df_input[df_input['Clasificacion_IA'] == 'Fértil']
+                    df_esteril = df_input[df_input['Clasificacion_IA'] != 'Fértil']
                     
-                    groq_api_key = st.secrets.get("GROQ_API_KEY") or st.text_input(
-                        "Ingresa tu Groq API Key:", 
-                        type="password", 
-                        help="Obtén tu API key GRATIS en https://console.groq.com/keys"
+                    trace_elems = ['LA', 'SR', 'Y', 'ZR', 'TI', 'V', 'SC', 'CU', 'ZN', 'PB', 'K', 'FE', 'CR']
+                    prom_fertil = df_fertil[trace_elems].mean().round(2).to_dict() if not df_fertil.empty else {}
+                    prom_esteril = df_esteril[trace_elems].mean().round(2).to_dict() if not df_esteril.empty else {}
+                    sry_mediano_fertil = round(df_fertil['Sr_Y'].median(), 2) if 'Sr_Y' in df_fertil.columns and not df_fertil.empty else "N/A"
+
+                    # 2. Construir el prompt en formato String
+                    prompt_ni43101 = f"""
+                    Actúa como una Persona Calificada (QP) en exploración geoquímica y depósitos porfídicos/epitermales.
+                    
+                    RESUMEN ANALÍTICO DE LA CAMPAÑA:
+                    - Total de muestras procesadas: {total_muestras}
+                    - Muestras Fértiles (Clasificación IA): {muestras_fertiles} ({porcentaje_anomalias:.2f}% de anomalía)
+                    - Umbral de corte de probabilidad aplicado: {umbral_corte}
+                    - Mediana del ratio Sr/Y en zona fértil: {sry_mediano_fertil}
+                    
+                    PROMEDIOS DE ELEMENTOS CLAVE (PPM / %):
+                    - Población Fértil: {prom_fertil}
+                    - Población Estéril/Background: {prom_esteril}
+                    
+                    INSTRUCCIONES DE ANÁLISIS:
+                    Elabora una sección técnica rigurosa compatible con la norma NI 43-101 (Ítem 9: Exploración):
+                    
+                    1. **Firma Adakítica y Fertilidad Magmática:** Interpretación de Sr/Y vs Y, supresión de plagioclasa y fraccionamiento de anfíbol/granate.
+                    2. **Patrones de Elementos Traza:** Contraste entre la población fértil e infértil (Sr, Y, Zr, Ti, V, Sc, Cu, Zn, Pb).
+                    3. **Afinidades Petrogenéticas y Alteración:** Tendencias de alteración potásica (Cu vs K), fraccionamiento (Fe vs Cr) y estado de oxidación (V vs Ti).
+                    4. **Conclusión y Recomendaciones:** Evaluación del potencial económico del proyecto y siguientes pasos.
+                    """
+                    
+                    client = Groq(api_key=groq_api_key)
+                    
+                    # 3. Petición a Groq enviando 'content' directamente como string
+                    response = client.chat.completions.create(
+                        model="llama-3.3-70b-versatile",
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": "Eres un experto en geoquímica de exploración, metalogenia y elaboración de informes bajo la norma NI 43-101."
+                            },
+                            {
+                                "role": "user",
+                                "content": prompt_ni43101  # <-- Debe ser un String simple
+                            }
+                        ],
+                        max_tokens=2500,
+                        temperature=0.2,
                     )
                     
-                    if not groq_api_key:
-                        st.warning("⚠️ Ingresa tu API Key de Groq para activar la generación del análisis y reporte.")
-                    else:
-                        if st.button("📄 Generar Interpretación e Informe NI 43-101"):
-                            with st.spinner("Enviando gráficos y matriz analítica a Groq (Llama 3.2 Vision)..."):
-                                try:
-                                    # Convertir los gráficos a formato Base64 para Groq
-                                    buf = io.BytesIO()
-                                    fig.savefig(buf, format='png', bbox_inches='tight', dpi=150)
-                                    buf.seek(0)
-                                    base64_image = base64.b64encode(buf.getvalue()).decode('utf-8')
-                                    
-                                    client = Groq(api_key=groq_api_key)
-                                    
-                                    prompt_ni43101 = f"""
-                                    Actúa como un Geólogo Calificado (QP / Persona Calificada) especializado en exploración geoquímica y depósitos porfídicos/epitermales.
-                                    
-                                    RESUMEN ANALÍTICO DE LA CAMPAÑA:
-                                    - Total de muestras procesadas: {total_muestras}
-                                    - Blancos fértiles detectados (Clasificación IA): {muestras_fertiles} ({porcentaje_anomalias:.2f}% de anomalía)
-                                    - Umbral de corte de probabilidad aplicado: {umbral_corte}
-                                    
-                                    INSTRUCCIONES DE ANÁLISIS:
-                                    A partir de la imagen adjunta que contiene los 6 diagramas geoquímicos multivariados (Sr/Y vs Y, Spider de elementos traza, Ternario AFM, Fe vs Cr, Cu vs K y V vs Ti), elabora una sección técnica rigurosa compatible con el informe NI 43-101 (Ítem 13: Procesamiento y Pruebas Metalúrgicas / Ítem 9: Exploración):
-                                    
-                                    1. **Firma Adakítica y Fertilidad Magmática:** Interpretación de la relación Sr/Y vs Y y fraccionamiento de anfíbol/granate.
-                                    2. **Patrones de Elementos Traza (Spider):** Anomalías de Eu, Ce, enriquecimiento de LILE sobre HFSE y firma de arco.
-                                    3. **Afinidades Petrogenéticas y Alteración:** Tendencia calcoalcalina en AFM, grado de alteración potásica (Cu vs K) y estado de oxidación del magma (V vs Ti).
-                                    4. **Conclusión y Recomendaciones de Prospectividad:** Evaluación global del potencial económico del área y blancos prioritarios.
-                                    """
-                                    
-                                    response = client.chat.completions.create(
-                                        model="llama-3.3-70b-versatile",
-                                        messages=[
-                                            {
-                                                "role": "user",
-                                                "content": [
-                                                    {"type": "text", "text": prompt_ni43101},
-                                                    {
-                                                        "type": "image_url",
-                                                        "image_url": {
-                                                            "url": f"data:image/png;base64,{base64_image}"
-                                                        },
-                                                    },
-                                                ],
-                                            }
-                                        ],
-                                        max_tokens=2000,
-                                        temperature=0.2,
-                                    )
-                                    
-                                    # Guardamos la respuesta en session_state para persistencia
-                                    st.session_state.reporte_groq = response.choices[0].message.content
-                                    
-                                except Exception as e:
-                                    st.error(f"⚠️ Error al comunicar con la API de Groq: {e}")
+                    st.session_state.reporte_groq = response.choices[0].message.content
+                    
+                except Exception as e:
+                    st.error(f"⚠️ Error al comunicar con la API de Groq: {e}")
 
-                        # Si ya existe un reporte generado previamente en la sesión, lo mostramos
-                        if 'reporte_groq' in st.session_state:
-                            st.success("✅ Análisis geológico e informe técnico generado exitosamente.")
-                            st.markdown(st.session_state.reporte_groq)
+        if 'reporte_groq' in st.session_state:
+            st.success("✅ Análisis geológico e informe técnico generado exitosamente.")
+            st.markdown(st.session_state.reporte_groq)
 
                 # =====================================================================
                 # DESCARGAS
