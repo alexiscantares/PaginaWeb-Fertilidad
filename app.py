@@ -68,35 +68,51 @@ st.sidebar.header("🎛️ Parámetros del Modelo")
 umbral_corte = st.sidebar.slider("Umbral de Probabilidad (Corte Fértil)", 0.0, 1.0, 0.5, 0.05)
 st.sidebar.markdown("---")
 
+# Función auxiliar para convertir Figuras de Matplotlib a io.BytesIO
+def fig_a_bytes(fig):
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', dpi=200, bbox_inches='tight')
+    buf.seek(0)
+    return buf
+
 # =====================================================================
-# DIÁLOGO MODAL (POP-UP) PARA DESCARGAR WORD
+# DIÁLOGO MODAL (POP-UP) PARA DESCARGAR WORD CON GRÁFICAS
 # =====================================================================
 @st.dialog("📄 Descargar Informe NI 43-101 en Word")
-def popup_descargar_word(texto_reporte):
-    st.write("Generando documento estructurado bajo norma técnica...")
+def popup_descargar_word(texto_reporte, figuras_dict):
+    st.write("Generando documento estructurado con figuras adjuntas...")
     
     doc = docx.Document()
     
     # Título principal
-    heading = doc.add_heading("INFORME TÉCNICO DE EXPLORACIÓN GEOQUÍMICA (NI 43-101)", level=0)
-    
-    # Formato de sub-encabezado
+    doc.add_heading("INFORME TÉCNICO DE EXPLORACIÓN GEOQUÍMICA (NI 43-101)", level=0)
     p = doc.add_paragraph()
     p.add_run("Evaluación de Fertilidad Magmática e Inferencia Multivariada por IA\n").bold = True
     
-    # Agregar el contenido generado por Groq
+    # Agregar el cuerpo de texto interpretativo de Groq
     doc.add_paragraph(texto_reporte)
     
+    # Sección de Anexos Gráficos en el Word
+    doc.add_page_break()
+    doc.add_heading("ANEXO FOTOGRÁFICO Y DIAGRAMAS GEOQUÍMICOS", level=1)
+    
+    # Incrustar cada figura almacenada en la sesión
+    for titulo, buf_img in figuras_dict.items():
+        if buf_img is not None:
+            doc.add_heading(titulo, level=2)
+            doc.add_picture(buf_img, width=Inches(6.0))
+            doc.add_paragraph("\n")
+
     # Guardar en buffer binario
     buffer_word = io.BytesIO()
     doc.save(buffer_word)
     buffer_word.seek(0)
     
-    st.success("✅ Documento Word listo para descarga.")
+    st.success("✅ Documento Word completo (Texto + Gráficas) generado con éxito.")
     st.download_button(
-        label="📥 Descargar Documento (.docx)",
+        label="📥 Descargar Documento Completo (.docx)",
         data=buffer_word,
-        file_name="Informe_Tecnico_NI43101_Fertilidad.docx",
+        file_name="Informe_Tecnico_NI43101_Con_Graficas.docx",
         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     )
 
@@ -125,7 +141,6 @@ if archivo_subido is not None:
                 nans_detectados = datos_modelo.isna().sum().sum()
                 
                 if nans_detectados > 0:
-                    st.warning(f"⚠️ Imputando {nans_detectados} valores nulos (NaN) mediante la mediana.")
                     imputer = SimpleImputer(strategy='median')
                     datos_modelo[elementos_requeridos] = imputer.fit_transform(datos_modelo)
                     datos_modelo = datos_modelo.fillna(0)
@@ -140,6 +155,10 @@ if archivo_subido is not None:
                 
                 if 'SR' in df_input.columns and 'Y' in df_input.columns:
                     df_input['Sr_Y'] = df_input['SR'] / df_input['Y']
+
+                # Diccionario en Session State para capturar las imágenes
+                if 'figuras_informe' not in st.session_state:
+                    st.session_state.figuras_informe = {}
 
                 # =====================================================================
                 # CREACIÓN DE PESTAÑAS (TABS)
@@ -166,7 +185,7 @@ if archivo_subido is not None:
                     
                     st.dataframe(df_input.head(500).style.map(colorear_fertiles, subset=['Clasificacion_IA']), use_container_width=True)
 
-                # ----- PESTAÑA 2: DIAGRAMAS COMPILADOS CON TÍTULO Y DESCRIPCIÓN -----
+                # ----- PESTAÑA 2: DIAGRAMAS COMPILADOS CON CAPTURA DE IMAGEN -----
                 with tab2:
                     st.subheader("📉 Evaluaciones Geoquímicas Individuales")
                     cmap_prob = 'coolwarm'
@@ -182,7 +201,7 @@ if archivo_subido is not None:
                     ax1.set_ylabel('Ratio Sr / Y')
                     ax1.legend(loc='best')
                     st.pyplot(fig1)
-                    st.caption("**Descripción:** Evalúa la retención/fraccionamiento de granate y anfíbol frente a la supresión de plagioclasa. Valores altos de Sr/Y (>20) e Y bajo (<15 ppm) caracterizan magmas fértiles/adakíticos hidratados.")
+                    st.session_state.figuras_informe["Figura 1: Diagrama Sr/Y vs Y"] = fig_a_bytes(fig1)
 
                     st.markdown("---")
 
@@ -197,7 +216,7 @@ if archivo_subido is not None:
                     ax2.set_ylabel('Concentración Log10 (ppm)')
                     ax2.legend()
                     st.pyplot(fig2)
-                    st.caption("**Descripción:** Contraste geoquímico medio entre la población clasificada como fértil frente al background estéril en elementos traza y móviles.")
+                    st.session_state.figuras_informe["Figura 2: Spider Diagram Multi-elemental"] = fig_a_bytes(fig2)
 
                     st.markdown("---")
 
@@ -216,7 +235,7 @@ if archivo_subido is not None:
                     ax3.axis('off')
                     fig3.colorbar(sc, ax=ax3, label='Probabilidad IA')
                     st.pyplot(fig3)
-                    st.caption("**Descripción:** Proyección ternaria para caracterización de series magmáticas (Calco-alcalina vs Toleítica) y enriquecimiento alcalino/potásico.")
+                    st.session_state.figuras_informe["Figura 3: Diagrama Ternario AFM"] = fig_a_bytes(fig3)
 
                     st.markdown("---")
 
@@ -229,7 +248,7 @@ if archivo_subido is not None:
                     ax4.set_xlabel('Potasio (K) [%]')
                     ax4.set_ylabel('Cobre (Cu) [ppm]')
                     st.pyplot(fig4)
-                    st.caption("**Descripción:** Diagrama de dispersión bivariable que vincula la adición de K durante metasomatismo potásico con la precipitación de sulfuros de cobre.")
+                    st.session_state.figuras_informe["Figura 4: Relacion Cu vs K"] = fig_a_bytes(fig4)
 
                     st.markdown("---")
 
@@ -242,7 +261,7 @@ if archivo_subido is not None:
                     ax5.set_xlabel('Titanio (Ti) [ppm]')
                     ax5.set_ylabel('Vanadio (V) [ppm]')
                     st.pyplot(fig5)
-                    st.caption("**Descripción:** Evalúa las condiciones de fugacidad de oxígeno ($fO_2$). Magmas oxidados previenen la cristalización temprana de magnetita/ilmenita manteniendo $V$ y $Ti$ en fundición.")
+                    st.session_state.figuras_informe["Figura 5: Diagrama V vs Ti"] = fig_a_bytes(fig5)
 
                 # ----- PESTAÑA 3: MAPA GEOQUÍMICO ESPACIAL DE ANOMALÍAS -----
                 with tab3:
@@ -274,25 +293,20 @@ if archivo_subido is not None:
                             ax_map.legend(loc='upper right')
                             
                             st.pyplot(fig_map)
-                            st.caption("**Descripción del Mapa Espacial:** Modelo de interpolación espacial de anomalías geoquímicas. Las isolíneas discontinuas marcan los umbrales de probabilidad de $0.5$, $0.7$ y $0.9$, delimitando los blancos de perforación prioritarios.")
-                        else:
-                            st.error("⚠️ Coordenadas no válidas.")
-                    else:
-                        st.warning("⚠️ El dataset no incluye columnas 'LATITUD' y 'LONGITUD'.")
+                            st.session_state.figuras_informe["Mapa Espacial: Interpolacion de Anomalías Espaciales"] = fig_a_bytes(fig_map)
 
                 # ----- PESTAÑA 4: ASISTENTE GROQ & GENERACIÓN NI 43-101 -----
                 with tab4:
                     st.subheader("🤖 Generador de Informe Técnico Norma NI 43-101")
                     
                     if st.button("📄 Sintetizar e Interpretar Informe NI 43-101"):
-                        groq_api_key = st.secrets.get("GROQ_API_KEY")
+                        groq_api_key = st.secrets.get("GROQ_API_KEY", "").strip()
                         
                         if not groq_api_key:
                             st.error("❌ Error de configuración del servidor: No se encontró 'GROQ_API_KEY' en los Secretos de Streamlit.")
                         else:
                             with st.spinner("Procesando síntesis con Llama 3.3 70B en Groq..."):
                                 try:
-                                    # Definición de variables requeridas para el prompt
                                     total_muestras_tab = len(df_input)
                                     df_fertil = df_input[df_input['Clasificacion_IA'] == 'Fértil']
                                     df_esteril = df_input[df_input['Clasificacion_IA'] != 'Fértil']
@@ -344,33 +358,13 @@ ESTRUCTURA OBLIGATORIA DEL REPORTE:
                         st.success("✅ Informe Técnico NI 43-101 Generado Con Éxito.")
                         
                         if st.button("📥 Abrir Menú de Exportación (.docx)"):
-                            popup_descargar_word(st.session_state.reporte_groq)
+                            popup_descargar_word(
+                                st.session_state.reporte_groq, 
+                                st.session_state.get('figuras_informe', {})
+                            )
                             
                         st.markdown("---")
                         st.markdown(st.session_state.reporte_groq)
-
-                # =====================================================================
-                # DESCARGAS EN PANEL LATERAL
-                # =====================================================================
-                st.sidebar.markdown("---")
-                st.sidebar.subheader("💾 Exportación de Resultados")
-                csv_buffer = df_input.drop(columns=['Color_Punto'], errors='ignore').to_csv(index=False).encode('utf-8')
-                st.sidebar.download_button("📥 Descargar Tabla CSV", data=csv_buffer, file_name="Resultados_Predictivos.csv", mime="text/csv")
-                
-                if 'LONGITUD' in df_input.columns and 'LATITUD' in df_input.columns:
-                    features = []
-                    for _, row in df_input.iterrows():
-                        features.append({
-                            "type": "Feature",
-                            "geometry": {"type": "Point", "coordinates": [row['LONGITUD'], row['LATITUD']]},
-                            "properties": {
-                                "Prob_Fertilidad": round(row['Prob_Fertilidad'], 4),
-                                "Clasificacion_IA": row['Clasificacion_IA']
-                            }
-                        })
-                    geojson_data = {"type": "FeatureCollection", "features": features}
-                    geojson_buffer = json.dumps(geojson_data).encode('utf-8')
-                    st.sidebar.download_button("🗺️ Descargar Capa GeoJSON", data=geojson_buffer, file_name="Anomalias_Espaciales.geojson", mime="application/geo+json")
 
             except KeyError as e:
                 st.error(f"⚠️ Falta la columna {e} en el archivo subido.")
