@@ -73,6 +73,7 @@ def fig_a_bytes(fig):
     buf = io.BytesIO()
     fig.savefig(buf, format='png', dpi=200, bbox_inches='tight')
     buf.seek(0)
+    plt.close(fig)  # Libera memoria de Matplotlib
     return buf
 
 # =====================================================================
@@ -91,9 +92,12 @@ def popup_descargar_word(texto_reporte, figuras_dict):
 
     def insertar_grafico(key_fig, titulo_fig, desc_fig):
         if key_fig in figuras_dict and figuras_dict[key_fig] is not None:
+            buf = figuras_dict[key_fig]
+            buf.seek(0)
+            
             p_img = doc.add_paragraph()
             p_img.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            doc.add_picture(figuras_dict[key_fig], width=Inches(5.5))
+            doc.add_picture(buf, width=Inches(5.5))
             
             p_label = doc.add_paragraph()
             p_label.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -185,6 +189,12 @@ if archivo_subido is not None:
     if st.session_state.modelo_ejecutado:
         with st.spinner('Procesando datos y ejecutando análisis multivariado...'):
             try:
+                # Verificar columnas faltantes
+                columnas_faltantes = [elem for elem in elementos_requeridos if elem not in df_input.columns]
+                if columnas_faltantes:
+                    st.error(f"⚠️ El archivo subido no contiene los siguientes elementos requeridos: {', '.join(columnas_faltantes)}")
+                    st.stop()
+
                 # 1. Imputación e Inferencia
                 datos_modelo = df_input[elementos_requeridos].copy()
                 nans_detectados = datos_modelo.isna().sum().sum()
@@ -203,10 +213,9 @@ if archivo_subido is not None:
                 df_input['Clasificacion_IA'] = np.where(df_input['Prob_Fertilidad'] >= umbral_corte, 'Fértil', 'Estéril/Artefacto')
                 
                 if 'SR' in df_input.columns and 'Y' in df_input.columns:
-                    df_input['Sr_Y'] = df_input['SR'] / df_input['Y']
+                    df_input['Sr_Y'] = df_input['SR'] / (df_input['Y'] + 1e-5)
 
-                if 'figuras_informe' not in st.session_state:
-                    st.session_state.figuras_informe = {}
+                st.session_state.figuras_informe = {}
 
                 # =====================================================================
                 # CREACIÓN DE PESTAÑAS (TABS)
@@ -218,7 +227,7 @@ if archivo_subido is not None:
                     st.subheader("📊 Resumen Analítico de la Campaña")
                     total_muestras = len(df_input)
                     muestras_fertiles = len(df_input[df_input['Clasificacion_IA'] == 'Fértil'])
-                    porcentaje_anomalias = (muestras_fertiles / total_muestras) * 100
+                    porcentaje_anomalias = (muestras_fertiles / total_muestras) * 100 if total_muestras > 0 else 0
                     
                     col1, col2, col3 = st.columns(3)
                     col1.metric("Total Muestras Procesadas", total_muestras)
@@ -256,7 +265,7 @@ if archivo_subido is not None:
                     # Figura Spider Diagram
                     st.markdown("### Figura: Perfil Multi-elemental Normalizado (Spider Diagram)")
                     fig2, ax2 = plt.subplots(figsize=(9, 4.5))
-                    trace_elems = ['LA', 'SR', 'Y', 'ZR', 'TI', 'V', 'SC', 'CU', 'ZN', 'PB']
+                    trace_elems = [e for e in ['LA', 'SR', 'Y', 'ZR', 'TI', 'V', 'SC', 'CU', 'ZN', 'PB'] if e in df_input.columns]
                     means_fert = df_input[df_input['Clasificacion_IA'] == 'Fértil'][trace_elems].mean()
                     means_inf = df_input[df_input['Clasificacion_IA'] != 'Fértil'][trace_elems].mean()
                     ax2.plot(trace_elems, np.log10(means_fert + 1e-5), marker='o', color='darkred', lw=2, label='Población Fértil')
@@ -342,6 +351,8 @@ if archivo_subido is not None:
                             
                             st.pyplot(fig_map)
                             st.session_state.figuras_informe["mapa"] = fig_a_bytes(fig_map)
+                    else:
+                        st.info("ℹ️ Para desplegar el mapa espacial, asegúrate de incluir las columnas 'LONGITUD' y 'LATITUD' en tu archivo.")
 
                 # ----- PESTAÑA 4: ASISTENTE GROQ & GENERACIÓN NI 43-101 -----
                 with tab4:
@@ -361,9 +372,9 @@ if archivo_subido is not None:
                                     muestras_fertiles_tab = len(df_fertil)
                                     porcentaje_anomalias_tab = (muestras_fertiles_tab / total_muestras_tab) * 100 if total_muestras_tab > 0 else 0
                                     
-                                    trace_elems = ['LA', 'SR', 'Y', 'ZR', 'TI', 'V', 'SC', 'CU', 'ZN', 'PB', 'K', 'FE', 'CR']
-                                    prom_fertil = df_fertil[trace_elems].mean().round(2).to_dict() if not df_fertil.empty else {}
-                                    prom_esteril = df_esteril[trace_elems].mean().round(2).to_dict() if not df_esteril.empty else {}
+                                    trace_elems_g = [e for e in ['LA', 'SR', 'Y', 'ZR', 'TI', 'V', 'SC', 'CU', 'ZN', 'PB', 'K', 'FE', 'CR'] if e in df_input.columns]
+                                    prom_fertil = df_fertil[trace_elems_g].mean().round(2).to_dict() if not df_fertil.empty else {}
+                                    prom_esteril = df_esteril[trace_elems_g].mean().round(2).to_dict() if not df_esteril.empty else {}
                                     sry_mediano_fertil = round(df_fertil['Sr_Y'].median(), 2) if 'Sr_Y' in df_fertil.columns and not df_fertil.empty else "N/A"
 
                                     prompt_ni43101 = f"""
