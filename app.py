@@ -76,7 +76,7 @@ if archivo_subido is not None:
     if st.sidebar.button("🚀 Ejecutar Modelo Predictivo"):
         with st.spinner('Procesando datos y renderizando gráficos espaciales...'):
             try:
-                # 1. Inferencia Predictiva y Manejo de NaNs
+               # 1. Inferencia Predictiva y Manejo de NaNs
                 datos_modelo = df_input[elementos_requeridos].copy()
                 
                 # VERIFICACIÓN E IMPUTACIÓN DE VALORES FALTANTES (NaN)
@@ -84,21 +84,24 @@ if archivo_subido is not None:
                 if nans_detectados > 0:
                     st.warning(
                         f"⚠️ **Advertencia de Datos Faltantes:** Se detectaron **{nans_detectados}** valores nulos (NaN) "
-                        f"en las columnas requeridas. Se aplicó una imputación automática por mediana para permitir el cálculo."
+                        f"en los elementos requeridos. Se aplicó imputación automática por mediana para continuar el procesamiento."
                     )
                     imputer = SimpleImputer(strategy='median')
                     datos_imputados = imputer.fit_transform(datos_modelo)
-                    datos_modelo = pd.DataFrame(datos_imputados, columns=elementos_requeridos)
+                    
+                    # Actualizamos tanto la matriz para el modelo como el dataframe base
+                    datos_modelo = pd.DataFrame(datos_imputados, columns=elementos_requeridos, index=datos_modelo.index)
+                    datos_modelo = datos_modelo.fillna(0) # Respaldo si alguna columna entera era NaN
+                    df_input[elementos_requeridos] = datos_modelo
 
+                # Transformación Log + Escalamiento
                 datos_log = np.log10(datos_modelo + 1e-5)
+                
+                # Si por algún motivo matemático se generó un NaN en la transf. logarítmica:
+                datos_log = datos_log.fillna(0)
+                
                 datos_escalados = scaler.transform(datos_log)
                 probabilidades = modelo_rf.predict_proba(datos_escalados)[:, 1]
-                
-                df_input['Prob_Fertilidad'] = probabilidades
-                df_input['Clasificacion_IA'] = np.where(df_input['Prob_Fertilidad'] >= umbral_corte, 'Fértil', 'Estéril/Artefacto')
-                
-                if 'SR' in df_input.columns and 'Y' in df_input.columns:
-                    df_input['Sr_Y'] = df_input['SR'] / df_input['Y']
                 
                 # =====================================================================
                 # CREACIÓN DE PESTAÑAS (TABS)
