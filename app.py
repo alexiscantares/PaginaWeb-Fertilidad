@@ -90,62 +90,47 @@ def popup_descargar_word(texto_reporte, figuras_dict):
     p_sub.add_run("Evaluación de Fertilidad Magmática e Inferencia Multivariada por IA\n").bold = True
 
     # Función auxiliar para agregar imagen con título y descripción
-    def agregar_figura_doc(clave_figura, titulo_fig, desc_fig):
-        if clave_figura in figuras_dict and figuras_dict[clave_figura] is not None:
+    def insertar_grafico(key_fig, titulo_fig, desc_fig):
+        if key_fig in figuras_dict and figuras_dict[key_fig] is not None:
             p_img = doc.add_paragraph()
             p_img.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            doc.add_picture(figuras_dict[clave_figura], width=Inches(5.5))
+            doc.add_picture(figuras_dict[key_fig], width=Inches(5.5))
             
             p_label = doc.add_paragraph()
             p_label.alignment = WD_ALIGN_PARAGRAPH.CENTER
             run_lbl = p_label.add_run(f"{titulo_fig}: {desc_fig}")
             run_lbl.italic = True
             run_lbl.font.size = Pt(9.5)
-            p_label.paragraph_format.space_after = Pt(12)
+            p_label.paragraph_format.space_after = Pt(14)
 
-    # Mapeo de figuras e instrucciones asociadas por sección
-    mapeo_figuras_secciones = {
-        "1. RESUMEN EJECUTIVO E ÍTEM 9": [
-            ("mapa", "Figura 1. Modelo Digital Espacial de Anomalías", "Interpolación espacial de la probabilidad de fertilidad magmática e isolíneas de prospección.")
-        ],
-        "2. FIRMA ADAKÍTICA Y FERTILIDAD MAGMÁTICA": [
-            ("sry", "Figura 2. Diagrama Sr/Y vs Y", "Relación de fraccionamiento de granate/anfíbol indicativo de la fertilidad magmática.")
-        ],
-        "3. EVALUACIÓN DE ELEMENTOS TRAZA Y METALOVECTORES": [
-            ("spider", "Figura 3. Perfil Multi-elemental Normalizado", "Spider diagram comparativo entre la población fértil y el background estéril.")
-        ],
-        "4. ALTERACIÓN GEOQUÍMICA Y TENDENCIAS PETROGENÉTICAS": [
-            ("afm", "Figura 4. Diagrama Ternario AFM", "Proyección ternaria Na+K - Fe - Mg para series magmáticas."),
-            ("cuk", "Figura 5. Relación Cu vs K", "Indicador de enriquecimiento potásico asociado a sulfuros de cobre."),
-            ("vti", "Figura 6. Diagrama V vs Ti", "Condiciones de fugacidad de oxígeno (fO2) y fraccionamiento.")
-        ]
-    }
-
-    # Procesar párrafos e intercalar las imágenes según los encabezados
+    # Procesar líneas del reporte generado
     lineas = texto_reporte.split('\n')
-    seccion_actual = ""
-
+    
     for linea in lineas:
-        linea_str = linea.strip()
-        if not linea_str:
+        linea_clean = linea.strip()
+        if not linea_clean:
             continue
-            
-        if linea_str.startswith(("1.", "2.", "3.", "4.", "5.", "**1.", "**2.", "**3.", "**4.", "**5.")):
-            # Si cambiamos de sección, verificar si la sección anterior tenía imágenes pendientes que agregar
-            doc.add_heading(linea_str.replace("**", ""), level=2)
-            
-            for key_sec, figs in mapeo_figuras_secciones.items():
-                if key_sec in linea_str.upper():
-                    seccion_actual = key_sec
+
+        # Si detecta un título de sección (robusto a negritas ** de Markdown)
+        if any(sec in linea_clean.upper() for sec in ["1.", "2.", "3.", "4.", "5.", "RESUMEN EJECUTIVO", "FIRMA ADAKÍTICA", "EVALUACIÓN DE ELEMENTOS", "ALTERACIÓN GEOQUÍMICA", "CONCLUSIONES"]):
+            doc.add_heading(linea_clean.replace("**", ""), level=2)
         else:
-            doc.add_paragraph(linea_str)
-            
-            # Insertar las imágenes correspondientes a la sección activa
-            if seccion_actual in mapeo_figuras_secciones:
-                for key_fig, tit_fig, desc_fig in mapeo_figuras_secciones[seccion_actual]:
-                    agregar_figura_doc(key_fig, tit_fig, desc_fig)
-                # Limpiar sección para evitar duplicar inserción de imágenes
-                del mapeo_figuras_secciones[seccion_actual]
+            doc.add_paragraph(linea_clean)
+
+        # Inserción de gráficos intercalados según el tema redactado
+        if "RESUMEN EJECUTIVO" in linea_clean.upper() or "ÍTEM 9" in linea_clean.upper():
+            insertar_grafico("mapa", "Figura 1. Modelo Digital Espacial de Anomalías", "Interpolación espacial de la probabilidad de fertilidad magmática e isolíneas de prospección.")
+        
+        elif "FIRMA ADAKÍTICA" in linea_clean.upper():
+            insertar_grafico("sry", "Figura 2. Diagrama Sr/Y vs Y", "Relación de fraccionamiento de granate/anfíbol indicativo de la fertilidad magmática.")
+        
+        elif "ELEMENTOS TRAZA" in linea_clean.upper() or "METALOVECTORES" in linea_clean.upper():
+            insertar_grafico("spider", "Figura 3. Perfil Multi-elemental Normalizado", "Spider diagram comparativo entre la población fértil y el background estéril.")
+        
+        elif "ALTERACIÓN GEOQUÍMICA" in linea_clean.upper() or "TENDENCIAS PETROGENÉTICAS" in linea_clean.upper():
+            insertar_grafico("afm", "Figura 4. Diagrama Ternario AFM", "Proyección ternaria Na+K - Fe - Mg para series magmáticas.")
+            insertar_grafico("cuk", "Figura 5. Relación Cu vs K", "Indicador de enriquecimiento potásico asociado a sulfuros de cobre.")
+            insertar_grafico("vti", "Figura 6. Diagrama V vs Ti", "Condiciones de fugacidad de oxígeno (fO2) y fraccionamiento.")
 
     # Guardar en buffer binario
     buffer_word = io.BytesIO()
