@@ -10,6 +10,7 @@ import io
 import base64
 import requests
 from pathlib import Path
+from sklearn.impute import SimpleImputer  # <--- Importación agregada
 
 # =====================================================================
 # RUTAS ABSOLUTAS DINÁMICAS (Evita KeyErrors y FileNotFoundError en Cloud)
@@ -75,8 +76,20 @@ if archivo_subido is not None:
     if st.sidebar.button("🚀 Ejecutar Modelo Predictivo"):
         with st.spinner('Procesando datos y renderizando gráficos espaciales...'):
             try:
-                # 1. Inferencia Predictiva
+                # 1. Inferencia Predictiva y Manejo de NaNs
                 datos_modelo = df_input[elementos_requeridos].copy()
+                
+                # VERIFICACIÓN E IMPUTACIÓN DE VALORES FALTANTES (NaN)
+                nans_detectados = datos_modelo.isna().sum().sum()
+                if nans_detectados > 0:
+                    st.warning(
+                        f"⚠️ **Advertencia de Datos Faltantes:** Se detectaron **{nans_detectados}** valores nulos (NaN) "
+                        f"en las columnas requeridas. Se aplicó una imputación automática por mediana para permitir el cálculo."
+                    )
+                    imputer = SimpleImputer(strategy='median')
+                    datos_imputados = imputer.fit_transform(datos_modelo)
+                    datos_modelo = pd.DataFrame(datos_imputados, columns=elementos_requeridos)
+
                 datos_log = np.log10(datos_modelo + 1e-5)
                 datos_escalados = scaler.transform(datos_log)
                 probabilidades = modelo_rf.predict_proba(datos_escalados)[:, 1]
