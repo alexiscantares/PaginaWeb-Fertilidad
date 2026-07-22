@@ -12,3 +12,4 @@ google-genai
 requests
 openpyxl
 groq
+python-docx
