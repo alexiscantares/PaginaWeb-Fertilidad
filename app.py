@@ -283,7 +283,7 @@ if archivo_subido is not None:
                                     """
                                     
                                     response = client.chat.completions.create(
-                                        model="llama-3.2-11b-vision-preview",
+                                        model="llama-3.2-11b-vision-instruct",
                                         messages=[
                                             {
                                                 "role": "user",
